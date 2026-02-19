@@ -3,11 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Models\Vehicle;
-use App\Models\MpesaTransaction;
 use Illuminate\Http\Request;
 use Iankumu\Mpesa\Facades\Mpesa;
 use Inertia\Inertia;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Log;
 
 class ParkingController extends Controller
 {
@@ -18,7 +18,6 @@ class ParkingController extends Controller
     {
         $active_vehicles = Vehicle::whereIn('status', ['parked', 'paid'])->get();
 
-        // Ensure resources/js/Pages/Dashboard.jsx exists
         return Inertia::render('Dashboard', [
             'vehicles' => $active_vehicles->map(function ($vehicle) {
                 return [
@@ -46,7 +45,6 @@ class ParkingController extends Controller
     {
         $occupied = Vehicle::whereIn('status', ['parked', 'paid'])->pluck('slot_number')->toArray();
 
-        // Ensure resources/js/Pages/PublicParking.jsx exists
         return Inertia::render('PublicParking', [
             'available_slots' => 50 - count($occupied),
             'occupied_slots' => $occupied,
@@ -82,17 +80,27 @@ class ParkingController extends Controller
     }
 
     /**
-     * ROLE: DRIVER - Initiate Payment (Simulated)
-     * FIXED: Added missing pay method referenced in web.php
+     * ROLE: DRIVER - Initiate M-Pesa Payment
      */
     public function pay($id)
     {
         $vehicle = Vehicle::findOrFail($id);
+        $amount = $this->calculateFee($vehicle->arrival_time);
 
-        // Simulating a successful payment for now
-        $vehicle->update(['status' => 'paid']);
+        if ($amount <= 0) {
+            $vehicle->update(['status' => 'paid']);
+            return back()->with('success', 'Free parking period applied.');
+        }
 
-        return back()->with('success', 'Payment confirmed for ' . $vehicle->plate_number);
+        try {
+            // Trigger STK Push
+            $response = Mpesa::stkpush($vehicle->phone_number, $amount, 'ParkingAcc');
+
+            return back()->with('success', 'STK Push sent to ' . $vehicle->phone_number);
+        } catch (\Exception $e) {
+            Log::error('Mpesa Pay Error: ' . $e->getMessage());
+            return back()->with('error', 'M-Pesa Error: ' . $e->getMessage());
+        }
     }
 
     /**
@@ -117,35 +125,6 @@ class ParkingController extends Controller
         session()->forget('searchResult');
 
         return redirect()->route('parking.public')->with('success', "Slot #{$oldSlot} is now free.");
-    }
-
-    /**
-     * ROLE: DRIVER - Generate Receipt
-     */
-    public function downloadReceipt($id)
-    {
-        $vehicle = Vehicle::find($id);
-
-        if (!$vehicle) {
-            return response("Vehicle not found.", 404);
-        }
-
-        // Allow receipt even if status is 'completed' or 'cancelled' for historical records
-        if (!in_array($vehicle->status, ['paid', 'completed', 'cancelled'])) {
-            return response("Payment required before viewing receipt.", 403);
-        }
-
-        $fee = $this->calculateFee($vehicle->arrival_time);
-
-        $data = [
-            'plate'   => $vehicle->plate_number,
-            'arrival' => Carbon::parse($vehicle->arrival_time)->format('M d, Y h:i A'),
-            'exit'    => $vehicle->exit_time ? Carbon::parse($vehicle->exit_time)->format('M d, Y h:i A') : now()->format('M d, Y h:i A'),
-            'amount'  => $fee,
-            'ref'     => 'SP-' . strtoupper(substr(md5($vehicle->id . $vehicle->arrival_time), 0, 10))
-        ];
-
-        return view('receipt', $data);
     }
 
     /**
@@ -200,19 +179,46 @@ class ParkingController extends Controller
         return back()->with('success', 'Vehicle removed.');
     }
 
+    /**
+     * Private Utility: Calculate Fee
+     */
     private function calculateFee($arrivalTime)
     {
         if (!$arrivalTime) return 50;
         $arrival = Carbon::parse($arrivalTime);
         $totalMinutes = now()->diffInMinutes($arrival);
+
         if ($totalMinutes <= 15) return 0;
+
         $hours = ceil($totalMinutes / 60);
         return $hours * 50;
     }
 
+    /**
+     * ROLE: MPESA - Callback
+     */
     public function callback(Request $request)
     {
-        // ... M-Pesa Logic
+        $data = json_decode($request->getContent(), true);
+        $resultCode = $data['Body']['stkCallback']['ResultCode'] ?? 1;
+
+        if ($resultCode == 0) {
+            $meta = $data['Body']['stkCallback']['CallbackMetadata']['Item'] ?? [];
+            $phoneItem = collect($meta)->firstWhere('Name', 'PhoneNumber');
+            $phoneNumber = $phoneItem['Value'] ?? null;
+
+            if ($phoneNumber) {
+                $vehicle = Vehicle::where('phone_number', $phoneNumber)
+                    ->where('status', 'parked')
+                    ->latest()
+                    ->first();
+
+                if ($vehicle) {
+                    $vehicle->update(['status' => 'paid']);
+                }
+            }
+        }
+
         return response()->json(['ResultCode' => 0, 'ResultDesc' => 'Accepted']);
     }
 }

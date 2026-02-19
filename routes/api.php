@@ -15,7 +15,7 @@ Route::get('/user', function (Request $request) {
 })->middleware('auth:sanctum');
 
 // M-Pesa Callback
-Route::post('/mpesa/callback', [ParkingController::class, 'handleCallback']);
+Route::post('/mpesa/callback', [ParkingController::class, 'callback']);
 
 // Test route to verify the API is fixed
 Route::get('/test', function () {

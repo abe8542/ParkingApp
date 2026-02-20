@@ -83,7 +83,7 @@ class ParkingController extends Controller
     /**
      * ROLE: DRIVER - Initiate M-Pesa Payment
      */
-    public function pay($id)
+   public function pay($id)
     {
         $vehicle = Vehicle::findOrFail($id);
         $amount = $this->calculateFee($vehicle->arrival_time);
@@ -103,6 +103,7 @@ class ParkingController extends Controller
             return back()->with('error', 'M-Pesa Error: ' . $e->getMessage());
         }
     }
+
 
     /**
      * ROLE: DRIVER - Self-Checkout

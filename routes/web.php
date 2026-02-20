@@ -4,6 +4,9 @@ use App\Http\Controllers\ParkingController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
+// MOVE THIS HERE - TOP PRIORITY
+Route::get('/admin/dashboard', [ParkingController::class, 'index'])->name('admin.dashboard.index');
+
 /*
 |--------------------------------------------------------------------------
 | Public Routes (Driver Portal)
@@ -34,7 +37,7 @@ Route::get('/receipt/{id}', [ParkingController::class, 'downloadReceipt'])->name
 | Protected by 'auth' middleware. If a user is not logged in,
 | they will be redirected to the /login page automatically.
 */
-Route::prefix('admin')->middleware(['auth'])->group(function () {
+Route::prefix('admin')->group(function () {
 
     // 1. Admin Dashboard - List all vehicles
     Route::get('/dashboard', [ParkingController::class, 'index'])->name('dashboard');

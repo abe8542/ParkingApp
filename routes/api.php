@@ -21,3 +21,7 @@ Route::post('/mpesa/callback', [ParkingController::class, 'callback']);
 Route::get('/test', function () {
     return response()->json(['message' => 'API is now working!']);
 });
+use App\Http\Controllers\MpesaController;
+
+Route::post('/v1/stkpush', [MpesaController::class, 'stkPush']);
+Route::post('/mpesa/callback', [MpesaController::class, 'handleCallback']);
